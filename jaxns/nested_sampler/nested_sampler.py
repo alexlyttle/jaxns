@@ -18,6 +18,8 @@ from jaxns.nested_sampler.termination import termination_condition
 from jaxns.nested_sampler.utils import summary, save_results, load_results
 from jaxns.prior_transforms import PriorChain
 
+from jaxns.internals.progress import while_collect
+
 logger = logging.getLogger(__name__)
 
 
@@ -297,7 +299,8 @@ class NestedSampler(object):
                      termination_max_samples=None,
                      termination_max_num_likelihood_evaluations=None,
                      termination_likelihood_contour=None,
-                     log_L_constraint=None
+                     log_L_constraint=None,
+                     show_progress_bar: bool=True,
                      ) -> NestedSamplerState:
         """
         Performs nested sampling from an initial state with a static number of live points at each shrinkage step, and
@@ -496,9 +499,10 @@ class NestedSampler(object):
 
             return new_state, live_reservoir
 
-        (state, live_reservoir) = while_loop(lambda body_state: jnp.bitwise_not(body_state[0].done),
-                                             body,
-                                             (init_state, init_reservoir))
+        (state, live_reservoir) = while_collect(lambda body_state: jnp.bitwise_not(body_state[0].done),
+                                                body,
+                                                (init_state, init_reservoir),
+                                                show_progress_bar=show_progress_bar)
 
         state = collect_samples(state, live_reservoir)
 
@@ -517,7 +521,8 @@ class NestedSampler(object):
                       termination_evidence_uncert=None,
                       termination_max_num_steps=None,
                       termination_max_samples=None,
-                      termination_max_num_likelihood_evaluations=None
+                      termination_max_num_likelihood_evaluations=None,
+                      show_progress_bar: bool=True,
                       ) -> NestedSamplerState:
         """
         Performs nested sampling where the number of live points adaptively changes at each shrinkage step in order to
@@ -568,7 +573,8 @@ class NestedSampler(object):
                                           termination_max_samples=termination_max_samples,
                                           termination_max_num_likelihood_evaluations=termination_max_num_likelihood_evaluations,
                                           termination_likelihood_contour=log_L_constraint_end,
-                                          log_L_constraint=log_L_constaint_start
+                                          log_L_constraint=log_L_constaint_start,
+                                          show_progress_bar=False,
                                           )
 
             # determine if done
@@ -600,9 +606,10 @@ class NestedSampler(object):
             new_state = new_state._replace(done=done, termination_reason=termination_reason)
             return new_state
 
-        state = while_loop(lambda state: jnp.bitwise_not(state.done),
-                           body,
-                           init_state)
+        state = while_collect(lambda state: jnp.bitwise_not(state.done),
+                              body,
+                              init_state,
+                              show_progress_bar=show_progress_bar)
 
         return state
 
@@ -754,6 +761,7 @@ class NestedSampler(object):
                  num_live_points: int = None,
                  return_state: bool = False,
                  refine_state: NestedSamplerState = None,
+                 show_progress_bar: bool = True,
                  ) -> Union[NestedSamplerResults, Tuple[NestedSamplerResults, NestedSamplerState]]:
         """
         Applies static nested sampling, and optionally also dynamic improvement, with adaptive refinement.
@@ -824,7 +832,8 @@ class NestedSampler(object):
                 termination_max_samples=termination_max_samples,
                 termination_max_num_likelihood_evaluations=termination_max_num_likelihood_evaluations,
                 termination_likelihood_contour=None,
-                log_L_constraint=None)
+                log_L_constraint=None,
+                show_progress_bar=show_progress_bar)
         if self.dynamic:
             if not any([termination_ess is not None,
                         termination_evidence_uncert is not None,
@@ -854,7 +863,8 @@ class NestedSampler(object):
                 termination_evidence_uncert=termination_evidence_uncert,
                 termination_max_num_steps=termination_max_num_steps,
                 termination_max_samples=termination_max_samples,
-                termination_max_num_likelihood_evaluations=termination_max_num_likelihood_evaluations)
+                termination_max_num_likelihood_evaluations=termination_max_num_likelihood_evaluations,
+                show_progress_bar=show_progress_bar)
 
         if adaptive_evidence_patience is not None:
             # adaptively decrease auto-correlation of samples until evidence converges
